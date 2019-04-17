@@ -1,5 +1,6 @@
 package com.shruti.storage.documentstorage.controller;
 
+import org.apache.commons.lang3.RandomStringUtils;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
 import org.springframework.http.HttpHeaders;
@@ -13,9 +14,13 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Created by user on 4/16/19.
@@ -24,12 +29,15 @@ import java.nio.file.Paths;
 @RestController
 public class DocumentController {
 
+    public static Map<String,String> m = new HashMap<>();
+    public static Map<String,String> reversem = new HashMap<>();
+
     @GetMapping("/download/{id}")
     public ResponseEntity<Resource> download(@PathVariable String id, HttpServletRequest request){
         String contentType = null;
         Resource resource = null;
         try {
-            resource = loadFileAsResource(id);
+            resource = loadFileAsResource(m.get(id));
             contentType = request.getServletContext().getMimeType(resource.getFile().getAbsolutePath());
             System.out.println(contentType);
             if(contentType == null) {
@@ -44,42 +52,70 @@ public class DocumentController {
     }
 
     @DeleteMapping("/delete/{id}")
-    public void deleteFile(@PathVariable String id){
+    public ResponseEntity<String> deleteFile(@PathVariable String id){
 
         try {
-            Path path = Paths.get(id);
+            Path path = Paths.get(m.get(id));
             Files.deleteIfExists(path);
-
         } catch (MalformedURLException ex) {
+            return ResponseEntity.status(500).body("exception in deleting file");
         } catch (IOException e) {
-            e.printStackTrace();
+            return ResponseEntity.status(500).body("exception in deleting file");
         }
-
+        return ResponseEntity.ok().body("success");
     }
 
     @PutMapping("/update/{id}")
-    public void updateFile(@RequestParam("file") MultipartFile file){
+    public ResponseEntity<String> updateFile(@PathVariable String id, @RequestParam("file") MultipartFile file){
         try {
-            Path path = Paths.get(file.getOriginalFilename());
+            Path path = Paths.get(m.get(id));
+            if(reversem.get(file.getOriginalFilename()) == null){
+                return ResponseEntity.badRequest().body("file does not exists");
+            }
             Files.delete(path);
-            upload(file);
+            uploadFile(file);
+            ResponseEntity res = null;
+            try {
+                res = ResponseEntity.ok().body(id);
+                return res;
+            } catch (Exception e) {
+                return ResponseEntity.status(500).body("exception in updating file");
+            }
 
         } catch (MalformedURLException ex) {
+            return ResponseEntity.status(500).body("exception in updating file");
         } catch (IOException e) {
-            e.printStackTrace();
+            return ResponseEntity.status(500).body("exception in updating file");
         }
 
     }
 
     @PostMapping("/upload")
-    public void upload(@RequestParam("file") MultipartFile file){
-        File fileToStore = new File(file.getOriginalFilename());
-        try {
-            InputStream input = file.getInputStream();
-            Files.copy(input, fileToStore.toPath());
-        }catch (IOException e1) {
-                e1.printStackTrace();
+    public ResponseEntity<String> upload(@RequestParam("file") MultipartFile file){
+        String generatedString = RandomStringUtils.randomAlphanumeric(20);
+        if(reversem.get(file.getOriginalFilename()) != null){
+            return ResponseEntity.badRequest().body("file already exists");
         }
+        try {
+            uploadFile(file);
+        } catch (IOException e1) {
+            return ResponseEntity.status(500).body("exception in storing file");
+        }
+        m.put(generatedString, file.getOriginalFilename());
+        reversem.put(file.getOriginalFilename(), generatedString);
+        ResponseEntity res = null;
+        try {
+            res = ResponseEntity.created(new URI(generatedString)).body(generatedString);
+        } catch (URISyntaxException e) {
+            e.printStackTrace();
+        }
+        return res;
+    }
+
+    public void uploadFile(MultipartFile file ) throws IOException {
+        File fileToStore = new File(file.getOriginalFilename());
+        InputStream input = file.getInputStream();
+        Files.copy(input, fileToStore.toPath());
     }
 
 
