@@ -1,5 +1,6 @@
 package com.shruti.storage.documentstorage.controller;
 
+import com.shruti.storage.documentstorage.pojo.DocumentResponse;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
@@ -32,18 +33,23 @@ public class DocumentController {
     public static Map<String,String> m = new HashMap<>();
     public static Map<String,String> reversem = new HashMap<>();
 
-    @GetMapping("/download/{id}")
-    public ResponseEntity<Resource> download(@PathVariable String id, HttpServletRequest request){
+    @GetMapping("/storage/documents/{id}")
+    public ResponseEntity<Object> download(@PathVariable String id, HttpServletRequest request){
         String contentType = null;
         Resource resource = null;
+        if(m.get(id) == null){
+            return ResponseEntity.notFound().build();
+        }
         try {
             resource = loadFileAsResource(m.get(id));
             contentType = request.getServletContext().getMimeType(resource.getFile().getAbsolutePath());
-            System.out.println(contentType);
             if(contentType == null) {
                 contentType = "application/octet-stream";
             }
         } catch (IOException ex) {
+            DocumentResponse documentResponse = new DocumentResponse();
+            documentResponse.setErrorMessage("error in getting document "+ex.getMessage());
+            return ResponseEntity.badRequest().body(documentResponse);
         }
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(contentType))
@@ -51,10 +57,12 @@ public class DocumentController {
                 .body(resource);
     }
 
-    @DeleteMapping("/delete/{id}")
-    public ResponseEntity<String> deleteFile(@PathVariable String id){
-
+    @DeleteMapping("/storage/document/{id}")
+    public ResponseEntity<Object> deleteFile(@PathVariable String id){
         try {
+            if(m.get(id) == null){
+                return ResponseEntity.notFound().build();
+            }
             Path path = Paths.get(m.get(id));
             Files.deleteIfExists(path);
         } catch (MalformedURLException ex) {
@@ -62,52 +70,56 @@ public class DocumentController {
         } catch (IOException e) {
             return ResponseEntity.status(500).body("exception in deleting file");
         }
-        return ResponseEntity.ok().body("success");
+        return ResponseEntity.ok().body("document deleted successfully");
     }
 
-    @PutMapping("/update/{id}")
-    public ResponseEntity<String> updateFile(@PathVariable String id, @RequestParam("file") MultipartFile file){
+    @PutMapping("/storage/document/{id}")
+    public ResponseEntity<Object> updateFile(@PathVariable String id, @RequestParam("file") MultipartFile file){
         try {
-            Path path = Paths.get(m.get(id));
-            if(reversem.get(file.getOriginalFilename()) == null){
-                return ResponseEntity.badRequest().body("file does not exists");
+            if(m.get(id) == null){
+                return ResponseEntity.notFound().build();
             }
+            Path path = Paths.get(m.get(id));
             Files.delete(path);
             uploadFile(file);
             ResponseEntity res = null;
             try {
-                res = ResponseEntity.ok().body(id);
-                return res;
+                return ResponseEntity.noContent().build();
             } catch (Exception e) {
-                return ResponseEntity.status(500).body("exception in updating file");
+                return ResponseEntity.status(500).body("exception in updating file "+ e.getMessage());
             }
 
         } catch (MalformedURLException ex) {
-            return ResponseEntity.status(500).body("exception in updating file");
+            return ResponseEntity.status(500).body("exception in updating file " + ex.getMessage());
         } catch (IOException e) {
-            return ResponseEntity.status(500).body("exception in updating file");
+            return ResponseEntity.status(500).body("exception in updating file " + e.getMessage());
         }
 
     }
 
-    @PostMapping("/upload")
-    public ResponseEntity<String> upload(@RequestParam("file") MultipartFile file){
-        String generatedString = RandomStringUtils.randomAlphanumeric(20);
+    @PostMapping("/storage/document")
+    public ResponseEntity<Object> upload(@RequestParam("file") MultipartFile file){
+        DocumentResponse documentResponse = new DocumentResponse();
         if(reversem.get(file.getOriginalFilename()) != null){
-            return ResponseEntity.badRequest().body("file already exists");
+            documentResponse.setErrorMessage("file with same name already exists");
+            return ResponseEntity.badRequest().body(documentResponse);
         }
         try {
             uploadFile(file);
         } catch (IOException e1) {
-            return ResponseEntity.status(500).body("exception in storing file");
+            documentResponse.setErrorMessage("exception in uploading file "+ e1.getMessage());
+            return ResponseEntity.status(500).body(documentResponse);
         }
+        String generatedString = RandomStringUtils.randomAlphanumeric(20);
         m.put(generatedString, file.getOriginalFilename());
         reversem.put(file.getOriginalFilename(), generatedString);
+        documentResponse.setId(generatedString);
         ResponseEntity res = null;
         try {
-            res = ResponseEntity.created(new URI(generatedString)).body(generatedString);
+            res = ResponseEntity.created(new URI("/storage/documents/"+generatedString)).body(documentResponse);
         } catch (URISyntaxException e) {
-            e.printStackTrace();
+            documentResponse.setErrorMessage("malformed url  "+ e.getMessage());
+            return ResponseEntity.status(500).body(documentResponse);
         }
         return res;
     }
